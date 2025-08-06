@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -12,13 +13,12 @@ const BLUE = '\x1b[34m';
 const RESET = '\x1b[0m';
 
 const args = process.argv.slice(2);
-
-// parse flags & input files
 const flags = {
   force: false,
   silent: false,
   autorun: false,
   outDir: null,
+  outputName: null,
 };
 const files = [];
 
@@ -32,12 +32,13 @@ for (let i = 0; i < args.length; i++) {
   if (arg === '--force') flags.force = true;
   else if (arg === '--silent') flags.silent = true;
   else if (arg === '--autorun') flags.autorun = true;
-  else if (arg.startsWith('--outDir=')) flags.outDir = arg.split('=')[1];
   else if (arg === '--outDir') {
     flags.outDir = args[i + 1];
     i++;
+  } else if (arg === '--outputName') {
+    flags.outputName = args[i + 1];
+    i++;
   } else if (arg === '--help') {
-    // print help and exit
     console.log(`
 ${CYAN}tsb - simple typescript build tool${RESET}
 
@@ -45,21 +46,17 @@ usage:
   tsb <file.ts> [options]
 
 options:
-  --help       Show this help message
-  --force      Overwrite existing output file without prompt
-  --silent     No logs or prompts unless error
-  --outDir     Specify output directory for compiled .js
-  --autorun    Run compiled .js automatically after build without prompt
+  --help         Show this help message
+  --force        Overwrite existing output file without prompt
+  --silent       No logs or prompts unless error
+  --outDir       Specify output directory for compiled .js
+  --outputName   Set output .js filename
+  --autorun      Run compiled .js automatically after build without prompt
 
 examples:
   tsb src/app.ts --force
   tsb main.ts --outDir dist --autorun
-
-notes:
-  - uses your local tsc install
-  - will prompt before overwriting .js unless --force
-  - auto-detects tsconfig.json if present
-  - multi-file support if you pass multiple .ts files
+  tsb code.ts --outputName built.js
 `);
     process.exit(0);
   } else if (arg.endsWith('.ts')) {
@@ -74,18 +71,12 @@ if (files.length === 0) {
 
 const cwd = process.cwd();
 
-function logv(msg) {
-  if (!flags.silent) console.log(msg);
-}
-
 function log(msg) {
   if (!flags.silent) console.log(msg);
 }
-
 function error(msg) {
   console.error(`${RED}error:${RESET} ${msg}`);
 }
-
 function warning(msg) {
   if (!flags.silent) console.warn(`${YELLOW}warning:${RESET} ${msg}`);
 }
@@ -118,10 +109,9 @@ async function compileFile(tsFile) {
     return null;
   }
 
-  // determine output directory
   let outDir = flags.outDir ? path.resolve(flags.outDir) : path.dirname(inputPath);
   if (flags.outDir && !fs.existsSync(outDir)) {
-    logv(`${CYAN}creating output directory:${RESET} ${outDir}`);
+    log(`${CYAN}creating output directory:${RESET} ${outDir}`);
     try {
       fs.mkdirSync(outDir, { recursive: true });
     } catch {
@@ -130,10 +120,8 @@ async function compileFile(tsFile) {
     }
   }
 
-  // output js file in outDir with same filename
-  const jsFile = path.join(outDir, baseName + '.js');
+  const jsFile = path.join(outDir, flags.outputName || baseName + '.js');
 
-  // prompt for overwrite if file exists and not forced
   if (fs.existsSync(jsFile) && !flags.force) {
     const replace = await ask(`${YELLOW}warning:${RESET} ${jsFile} already exists. Replace? (y/n): `);
     if (!replace) {
@@ -142,20 +130,12 @@ async function compileFile(tsFile) {
     }
   }
 
-  logv(`${CYAN}Compiling with tsc...${RESET}`);
-
+  log(`${CYAN}Compiling with tsc...${RESET}`);
   const startTime = Date.now();
 
-  // build tsc command
   let cmd = 'tsc';
-
-  if (useTsconfig) {
-    cmd += ` "${inputPath}"`;
-    if (flags.outDir) cmd += ` --outDir "${outDir}"`;
-  } else {
-    cmd += ` "${inputPath}"`;
-    if (flags.outDir) cmd += ` --outDir "${outDir}"`;
-  }
+  cmd += ` "${inputPath}"`;
+  if (flags.outDir) cmd += ` --outDir "${outDir}"`;
 
   try {
     execSync(cmd, { stdio: 'inherit' });
@@ -171,11 +151,8 @@ async function compileFile(tsFile) {
     return null;
   }
 
-  // stats for output file
   const stats = fs.statSync(jsFile);
   const sizeKB = (stats.size / 1024).toFixed(2);
-
-  // count lines in ts input
   const lines = fs.readFileSync(inputPath, 'utf-8').split('\n').length;
 
   log(`${GREEN}Compilation successful${RESET} (${duration}s)`);
@@ -194,10 +171,9 @@ async function compileFile(tsFile) {
       continue;
     }
 
-    // autorun or prompt run only if single file, and not silent
     if (!flags.silent && files.length === 1) {
       if (flags.autorun) {
-        process.stdout.write('\x1Bc'); // clear terminal
+        process.stdout.write('\x1Bc');
         try {
           execSync(`node "${result.jsFile}"`, { stdio: 'inherit' });
         } catch (e) {
