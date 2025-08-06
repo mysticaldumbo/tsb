@@ -17,11 +17,12 @@ const args = process.argv.slice(2);
 const flags = {
   force: false,
   silent: false,
+  autorun: false,
   outDir: null,
 };
 const files = [];
 
-if (process.argv.length <= 2) {
+if (args.length === 0) {
   console.log(`Hello! Looks like you ran the file with no arguments. If you're confused on how this works, run ${CYAN}tsb --help${RESET}.`);
   process.exit(0);
 }
@@ -30,10 +31,37 @@ for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === '--force') flags.force = true;
   else if (arg === '--silent') flags.silent = true;
+  else if (arg === '--autorun') flags.autorun = true;
   else if (arg.startsWith('--outDir=')) flags.outDir = arg.split('=')[1];
   else if (arg === '--outDir') {
     flags.outDir = args[i + 1];
     i++;
+  } else if (arg === '--help') {
+    // print help and exit
+    console.log(`
+${CYAN}tsb - simple typescript build tool${RESET}
+
+usage:
+  tsb <file.ts> [options]
+
+options:
+  --help       Show this help message
+  --force      Overwrite existing output file without prompt
+  --silent     No logs or prompts unless error
+  --outDir     Specify output directory for compiled .js
+  --autorun    Run compiled .js automatically after build without prompt
+
+examples:
+  tsb src/app.ts --force
+  tsb main.ts --outDir dist --autorun
+
+notes:
+  - uses your local tsc install
+  - will prompt before overwriting .js unless --force
+  - auto-detects tsconfig.json if present
+  - multi-file support if you pass multiple .ts files
+`);
+    process.exit(0);
   } else if (arg.endsWith('.ts')) {
     files.push(arg);
   }
@@ -166,15 +194,24 @@ async function compileFile(tsFile) {
       continue;
     }
 
-    // only prompt to run if single file, not silent
+    // autorun or prompt run only if single file, and not silent
     if (!flags.silent && files.length === 1) {
-      const runIt = await ask(`${BLUE}Run compiled script now? (y/n): ${RESET}`);
-      if (runIt) {
-        process.stdout.write('\x1Bc');
+      if (flags.autorun) {
+        process.stdout.write('\x1Bc'); // clear terminal
         try {
           execSync(`node "${result.jsFile}"`, { stdio: 'inherit' });
         } catch (e) {
           error(`execution failed:\n${e.message}`);
+        }
+      } else {
+        const runIt = await ask(`${BLUE}Run compiled script now? (y/n): ${RESET}`);
+        if (runIt) {
+          process.stdout.write('\x1Bc');
+          try {
+            execSync(`node "${result.jsFile}"`, { stdio: 'inherit' });
+          } catch (e) {
+            error(`execution failed:\n${e.message}`);
+          }
         }
       }
     }
